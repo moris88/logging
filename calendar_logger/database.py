@@ -20,9 +20,12 @@ class Database:
         """)
         self.conn.commit()
 
-    def get_all_events(self):
-        """Retrieves all events from the database as a list of dictionaries."""
-        self.cursor.execute("SELECT * FROM events")
+    def get_events_for_week(self, start_of_week, end_of_week):
+        """Retrieves all events within a specific week."""
+        self.cursor.execute("""
+            SELECT * FROM events 
+            WHERE start_time BETWEEN ? AND ?
+        """, (start_of_week, end_of_week))
         columns = [description[0] for description in self.cursor.description]
         return [dict(zip(columns, row)) for row in self.cursor.fetchall()]
 
