@@ -32,22 +32,23 @@ jobs:
         run: pyinstaller --noconfirm --onefile scripts/build.py
         shell: bash
 
-      - name: Run build script on Windows
+      - name: Zip executables (Windows)
         if: runner.os == 'Windows'
-        run: pyinstaller --noconfirm --onefile scripts/build.py
+        run: |
+          New-Item -ItemType Directory -Force dist_zip
+          Compress-Archive -Path dist\* -DestinationPath dist_zip\myapp-${{ matrix.os }}.zip
         shell: powershell
 
-      - name: Zip executables
+      - name: Zip executables (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
           mkdir -p dist_zip
-          if [ "$RUNNER_OS" != "Windows" ]; then
-            zip -r dist_zip/myapp-${{ matrix.os }}.zip dist/*
-          else
-            powershell Compress-Archive -Path dist\* -DestinationPath dist_zip\myapp-${{ matrix.os }}.zip
-          fi
+          zip -r dist_zip/myapp-${{ matrix.os }}.zip dist/*
+        shell: bash
 
       - name: Check zip files
         run: ls -l dist_zip/   
+        
       - name: Upload executables to release
         uses: actions/upload-release-asset@v1
         with:
