@@ -6,25 +6,7 @@ from tkinter import messagebox
 from tkcalendar import Calendar
 from calendar_logger import zoho_api
 from calendar_logger import settings_manager
-
-# --- WIDGET EVENTO DRAGGABILE ---
-
-
-class DraggableEventButton(ctk.CTkButton):
-    def __init__(self, master, event, app_controller, **kwargs):
-        super().__init__(master, **kwargs)
-        self.event_data = event
-        self.app = app_controller
-
-        # Associa il click per tutti gli eventi, loggati e non
-        self.bind("<ButtonPress-1>", self.on_click)
-
-    def on_click(self, event):
-        # Apre sempre la finestra dei dettagli
-        self.app.open_view_event_window(self.event_data)
-
-# --- CLASSE PRINCIPALE APP ---
-
+from calendar_logger import google_calendar
 
 class App(ctk.CTk):
     def __init__(self, db):
@@ -81,10 +63,15 @@ class App(ctk.CTk):
             self.action_frame, text="Aggiungi Evento", command=self.open_add_event_window)
         self.add_event_button.grid(
             row=0, column=0, padx=5, pady=5, sticky="ew")
+        self.refresh_button = ctk.CTkButton(
+            self.action_frame,
+            text="Aggiorna Eventi",
+            command=self.refresh_events  # chiama il metodo refresh_events
+        )
+        self.refresh_button.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
         self.settings_button = ctk.CTkButton(
             self.action_frame, text="Impostazioni", command=self.open_settings_window)
-        self.settings_button.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-
+        self.settings_button.grid(row=0, column=2, padx=5, pady=5, sticky="ew")
         self.rebuild_calendar()
 
     def change_week(self, weeks_delta):
@@ -222,28 +209,67 @@ class App(ctk.CTk):
             self.calendar_cells.append(row_cells)
 
     def refresh_events(self):
+        # Pulizia dei bottoni esistenti
         for widget in self.event_widgets:
             widget.destroy()
         self.event_widgets.clear()
+
+        # Intervallo settimana corrente
         start_str = self.current_week_start.strftime("%Y-%m-%d 00:00:00")
         end_str = (self.current_week_start + timedelta(days=5)
-                   ).strftime("%Y-%m-%d 23:59:59")
-        events = self.db.get_events_for_week(start_str, end_str)
+                ).strftime("%Y-%m-%d 23:59:59")
+
+        # Eventi dal DB locale
+        local_events = self.db.get_events_for_week(start_str, end_str)
+
+        # Intervallo settimana corrente come datetime
+        week_start_dt = self.current_week_start
+        week_end_dt = self.current_week_start + \
+            timedelta(days=4, hours=23, minutes=59, seconds=59)
+
+        # Eventi da Google Calendar per la settimana corrente
+        try:
+            google_events_list = google_calendar.get_events_for_week(
+                week_start_dt, week_end_dt, max_results=100)
+        except Exception as e:
+            print(f"Errore recupero eventi Google: {e}")
+            google_events_list = []
+
+        # Conversione eventi Google al formato interno
+        google_events = []
+        for e in google_events_list:
+            print(f"Google Event: {e.get('description', '')}")  # Debug log
+            start = e['start'].get('dateTime', e['start'].get('date'))
+            end = e['end'].get('dateTime', e['end'].get('date'))
+            google_events.append({
+                'name': e.get('summary', 'Evento Google'),
+                'description': e.get('description', ''),
+                'start_time': start[:16].replace('T', ' '),  # YYYY-MM-DD HH:MM
+                'end_time': end[:16].replace('T', ' '),
+                'is_logged': 0  # non loggato su Zoho
+            })
+
+        # Unione eventi
+        events = local_events + google_events
+
+        # Creazione bottoni nella griglia
         for event in events:
             try:
-                start_dt = datetime.strptime(
-                    event['start_time'], '%Y-%m-%d %H:%M')
+                start_dt = datetime.strptime(event['start_time'], '%Y-%m-%d %H:%M')
                 end_dt = datetime.strptime(event['end_time'], '%Y-%m-%d %H:%M')
             except ValueError:
                 continue
-            if start_dt.weekday() > 4:
+            if start_dt.weekday() > 4:  # solo lun-ven
                 continue
-            row = (start_dt.hour - self.calendar_start_hour) * 2 + (1 if start_dt.minute >= 30 else 0)
+
+            row = (start_dt.hour - self.calendar_start_hour) * \
+                2 + (1 if start_dt.minute >= 30 else 0)
             col = start_dt.weekday()
             duration_minutes = (end_dt - start_dt).total_seconds() / 60
             num_slots = max(1, math.ceil(duration_minutes / 30))
             if not (0 <= row < len(self.calendar_cells)):
                 continue
+
             event_text = f"{event['name']}"
             event_button = DraggableEventButton(
                 self.scrollable_frame,
@@ -254,8 +280,9 @@ class App(ctk.CTk):
                 font=ctk.CTkFont(size=10)
             )
             event_button.grid(row=row, column=col+1,
-                              rowspan=num_slots, padx=1, pady=1, sticky="nsew")
+                            rowspan=num_slots, padx=1, pady=1, sticky="nsew")
             self.event_widgets.append(event_button)
+
 
     def open_settings_window(self):
         dialog = ctk.CTkToplevel(self)
@@ -700,3 +727,13 @@ class App(ctk.CTk):
                         padx=10, pady=20, sticky="ew")
 
         load_projects()
+
+class DraggableEventButton(ctk.CTkButton):
+    def __init__(self, master, event, app_controller, **kwargs):
+        super().__init__(master, **kwargs)
+        self.event_data = event
+        self.app = app_controller
+        self.bind("<ButtonPress-1>", self.on_click)
+
+    def on_click(self, event):
+        self.app.open_view_event_window(self.event_data)
