@@ -75,7 +75,7 @@ jobs:
           prerelease: false
           body: "Release automatically generated with executables for Linux, macOS and Windows."
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Upload Linux executable
         uses: actions/upload-release-asset@v1
