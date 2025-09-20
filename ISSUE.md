@@ -1,5 +1,0 @@
-# ISSUE
-
-## Report an Issue
-
-- 

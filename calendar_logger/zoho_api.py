@@ -103,7 +103,8 @@ def get_projects(portal_id: str):
 def get_tasks(portal_id, project_id):
     creds = settings_manager.get_credentials()
     api_domain = creds.get("api_domain")
-    if not api_domain: return None, "Dominio API non impostato."
+    if not api_domain:
+        return None, "Dominio API non impostato."
 
     api_url = f"{api_domain}/api/v3/portal/{portal_id}/projects/{project_id}/tasks"
     data, error = _make_api_call('GET', api_url)
@@ -112,7 +113,8 @@ def get_tasks(portal_id, project_id):
 def log_time_to_zoho(portal_id, project_id, task_id, event_name, notes, log_date, start_time, end_time, bill_status, owner_zpuid):
     creds = settings_manager.get_credentials()
     api_domain = creds.get("api_domain")
-    if not api_domain: return {"success": False, "message": "Dominio API non impostato."}
+    if not api_domain:
+        return {"success": False, "message": "Dominio API non impostato."}
 
     api_url = f"{api_domain}/api/v3/portal/{portal_id}/projects/{project_id}/log"
     payload = {
