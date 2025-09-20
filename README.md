@@ -1,134 +1,148 @@
-# Calendario con Logging su Zoho
+# Calendar Logger with Zoho and Google Calendar Integration
 
-Questo progetto è un'applicazione desktop sviluppata in Python che fornisce un'interfaccia a calendario per creare e gestire eventi, con una funzionalità specifica per registrare il tempo speso su Zoho Projects.
+This Python desktop application provides a calendar interface to create and manage events, with a specific feature to log time spent on Zoho Projects. It also syncs with your Google Calendar to display your events.
 
-## Indice
+## Table of Contents
 
-1. [Funzionalità](#funzionalità)
-2. [Tecnologie Utilizzate](#tecnologie-utilizzate)
-3. [Struttura del Progetto](#struttura-del-progetto)
-4. [Logiche Chiave Implementate](#logiche-chiave-implementate)
-    - [Rendering del Calendario](#rendering-del-calendario)
-    - [Gestione API Zoho e Autenticazione](#gestione-api-zoho-e-autenticazione)
-    - [Storage Sicuro delle Credenziali](#storage-sicuro-delle-credenziali)
-5. [Installazione e Avvio](#installazione-e-avvio)
-6. [Configurazione Iniziale](#configurazione-iniziale)
-7. [Possibili Miglioramenti Futuri](#possibili-miglioramenti-futuri)
-
----
-
-## Funzionalità
-
-- **Visualizzazione a Calendario**: Mostra una griglia settimanale da Lunedì a Venerdì, con fasce orarie dalle 8:00 alle 18:00.
-- **CRUD completo per gli Eventi**: È possibile Creare, Leggere, Modificare ed Eliminare eventi.
-- **Persistenza Locale**: Tutti gli eventi vengono salvati in un database locale SQLite (`events.db`), garantendo che i dati non vengano persi tra le sessioni.
-- **Integrazione con Zoho Projects**: Per gli eventi conclusi, è possibile registrare il tempo direttamente su Zoho Projects tramite un form dedicato.
-- **Immutabilità degli Eventi Loggati**: Una volta che un evento è stato registrato su Zoho, viene bloccato e non può più essere modificato o eliminato.
-- **Pannello Impostazioni**: Una finestra dedicata per inserire e salvare in modo sicuro le credenziali dell'API di Zoho.
-- **Gestione Sicura delle Credenziali**: Le chiavi API non sono memorizzate in testo semplice, ma affidate al gestore di credenziali del sistema operativo.
+1. [Features](#features)
+2. [Technologies Used](#technologies-used)
+3. [Project Structure](#project-structure)
+4. [Key Logic Implemented](#key-logic-implemented)
+    * [Calendar Rendering](#calendar-rendering)
+    * [Zoho API and Authentication Management](#zoho-api-and-authentication-management)
+    * [Google Calendar Integration](#google-calendar-integration)
+    * [Secure Credential Storage](#secure-credential-storage)
+5. [Installation and Startup](#installation-and-startup)
+6. [Initial Configuration](#initial-configuration)
+7. [Automated Build and Release](#automated-build-and-release)
+8. [Possible Future Improvements](#possible-future-improvements)
 
 ---
 
-## Tecnologie Utilizzate
+## Features
 
-- **Python 3**: Linguaggio di programmazione principale.
-- **CustomTkinter**: Libreria scelta per la GUI. Offre widget moderni e un aspetto più gradevole rispetto a Tkinter standard, pur mantenendo una buona semplicità di sviluppo rispetto a framework più complessi come PyQt o PySide.
-- **SQLite 3**: Motore del database. La scelta è ricaduta su SQLite perché è integrato in Python, non richiede un server separato (è basato su file) ed è perfetto per applicazioni desktop single-user.
-- **Requests**: Libreria standard de-facto per effettuare chiamate HTTP. Utilizzata per tutte le comunicazioni con le API di Zoho.
-- **Keyring**: Libreria fondamentale per la sicurezza. Si interfaccia con il gestore di credenziali nativo del sistema operativo (es. Windows Credential Manager, macOS Keychain) per salvare e recuperare dati sensibili come token e chiavi API. Questo evita di salvarli in file di testo o nel database, pratica altamente sconsigliata.
-
----
-
-## Struttura del Progetto
-
-Il codice è stato organizzato in una struttura a package per migliorare la manutenibilità e la chiarezza.
-
-- `main.py`: (Root) Il punto di ingresso dell'applicazione. Ha il solo scopo di inizializzare e lanciare l'app.
-- `calendar_logger/`: (Package) Contiene tutto il codice sorgente dell'applicazione.
-  - `__init__.py`: Rende la cartella un package Python.
-  - `app.py`: Il cuore dell'applicazione, gestisce la GUI e la logica principale.
-  - `database.py`: Gestisce la persistenza dei dati su SQLite.
-  - `settings_manager.py`: Gestisce il salvataggio e caricamento sicuro delle credenziali.
-  - `zoho_api.py`: Contiene tutta la logica per comunicare con le API di Zoho.
-- `scripts/`: Contiene script accessori.
-  - `build.py`: Script per creare l'eseguibile dell'applicazione tramite PyInstaller.
-- `requirements.txt`: Elenca le dipendenze Python.
-- `.gitignore`: Specifica i file da ignorare nel controllo di versione.
-- `events.db`: File del database (generato al primo avvio, ignorato da git).
+* **Calendar View**: Displays a weekly grid from Monday to Friday, with configurable time slots.
+* **Complete CRUD for Events**: You can Create, Read, Modify, and Delete events.
+* **Local Persistence**: All events are saved in a local SQLite database (`events.db`), ensuring that data is not lost between sessions.
+* **Integration with Zoho Projects**: For completed events, you can log time directly to Zoho Projects through a dedicated form.
+* **Google Calendar Sync**: Automatically fetches and displays events from your primary Google Calendar.
+* **Immutability of Logged Events**: Once an event is logged to Zoho, it is locked and can no longer be modified or deleted.
+* **Settings Panel**: A dedicated window to securely enter and save Zoho and Google API credentials.
+* **Secure Credential Management**: API keys are not stored in plain text but are entrusted to the operating system's credential manager.
 
 ---
 
-## Logiche Chiave Implementate
+## Technologies Used
 
-### Rendering del Calendario
-
-La visualizzazione degli eventi avviene nel metodo `refresh_events()` in `app.py`. La logica è la seguente:
-
-1. **Pulizia**: Vengono distrutti tutti i widget degli eventi precedentemente disegnati per evitare duplicati.
-2. **Fetch**: Vengono recuperati tutti gli eventi dal database.
-3. **Iterazione e Disegno**: Per ogni evento, viene calcolata la sua posizione nella griglia (riga e colonna) basandosi su data e ora. La logica supporta la visualizzazione di più eventi nella stessa fascia oraria, affiancandoli.
-4. **Dinamicità**: La griglia si adatta agli orari di inizio e fine giornata specificati nelle impostazioni e supporta una granularità di 30 minuti.
-
-### Gestione API Zoho e Autenticazione
-
-La logica risiede in `zoho_api.py` e segue il flusso OAuth 2.0 con Refresh Token.
-
-1. **Token Refresh**: La funzione `refresh_access_token()` si occupa di richiedere un nuovo `access_token` a Zoho. Usa il `refresh_token`, `client_id` e `client_secret` (recuperati in modo sicuro da `settings_manager`) per effettuare una chiamata POST all'endpoint di autenticazione di Zoho. Il nuovo `access_token` viene salvato per le chiamate successive.
-
-2. **Chiamata API con Retry Automatico**: La funzione `log_time_to_zoho()` è stata resa robusta:
-    a. Tenta di effettuare la chiamata API usando l'`access_token` salvato.
-    b. Se la chiamata fallisce con uno **status code 401 (Unauthorized)**, significa che il token è scaduto.
-    c. In questo caso, chiama automaticamente `refresh_access_token()` per ottenerne uno nuovo.
-    d. Se il rinnovo ha successo, **ripete la chiamata API originale una seconda volta** con il nuovo token.
-    e. Se anche il secondo tentativo fallisce, o se il rinnovo non va a buon fine, restituisce un errore.
-
-Questo meccanismo di "retry" rende l'integrazione molto più stabile, poiché gestisce autonomamente la scadenza dei token.
-
-### Storage Sicuro delle Credenziali
-
-In `settings_manager.py`, la libreria `keyring` viene usata per non esporre mai le credenziali nel codice o in file di testo. Viene definito un `SERVICE_NAME` univoco per l'applicazione. `keyring` usa questo nome per creare uno spazio isolato nel gestore di credenziali del sistema operativo dove salvare le varie chiavi (client_id, client_secret, etc.).
+* **Python 3**: Main programming language.
+* **CustomTkinter**: Library chosen for the GUI. It offers modern widgets and a more pleasing appearance than standard Tkinter.
+* **SQLite 3**: Database engine. SQLite was chosen because it is integrated into Python and is perfect for single-user desktop applications.
+* **Requests**: De-facto standard library for making HTTP calls, used for all communications with the Zoho APIs.
+* **Keyring**: A fundamental library for security. It interfaces with the native credential manager of the operating system (e.g., Windows Credential Manager, macOS Keychain) to save and retrieve sensitive data.
+* **Google API Client Library for Python**: Used to interact with the Google Calendar API.
+* **PyInstaller**: To create the application executable.
 
 ---
 
-## Installazione e Avvio
+## Project Structure
 
-1. Assicurati di avere Python 3 installato.
-2. È consigliabile creare un ambiente virtuale: `python -m venv venv` e attivarlo.
-3. Installa le dipendenze: `pip install -r requirements.txt`.
-4. Avvia l'applicazione dalla cartella root del progetto: `python main.py`.
+The code is organized in a package structure to improve maintainability and clarity.
 
-### Creare l'Eseguibile (Windows)
+* `main.py`: (Root) The application's entry point.
+* `calendar_logger/`: (Package) Contains all the application's source code.
+  * `__init__.py`: Makes the folder a Python package.
+  * `app.py`: The heart of the application, manages the GUI and main logic.
+  * `database.py`: Manages data persistence on SQLite.
+  * `settings_manager.py`: Manages the secure saving and loading of credentials.
+  * `zoho_api.py`: Contains all the logic for communicating with the Zoho APIs.
+  * `google_calendar.py`: Handles integration with the Google Calendar API.
+* `scripts/`: Contains accessory scripts.
+  * `build.py`: Script to create the application executable via PyInstaller.
+* `.github/workflows/`: Contains the CI/CD pipeline.
+  * `release.yml`: A GitHub Actions workflow that automatically builds and releases executables for Linux, macOS, and Windows when a new tag is pushed.
+* `requirements.txt`: Lists the Python dependencies.
+* `.gitignore`: Specifies the files to be ignored in version control.
 
-Per creare un file `.exe` standalone, esegui lo script di build dalla cartella root:
+---
+
+## Key Logic Implemented
+
+### Calendar Rendering
+
+The display of events is handled in the `refresh_events()` method in `app.py`. The logic is as follows:
+
+1. **Cleanup**: All previously drawn event widgets are destroyed to avoid duplicates.
+2. **Fetch**: All events are retrieved from the local database and Google Calendar.
+3. **Iteration and Drawing**: For each event, its position in the grid (row and column) is calculated based on date and time.
+
+### Zoho API and Authentication Management
+
+The logic resides in `zoho_api.py` and follows the OAuth 2.0 flow with Refresh Token.
+
+1. **Token Refresh**: The `refresh_access_token()` function is responsible for requesting a new `access_token` from Zoho.
+2. **API Call with Automatic Retry**: The `log_time_to_zoho()` function is robust: it automatically retries the API call with a new token if the current one is expired.
+
+### Google Calendar Integration
+
+The `google_calendar.py` module handles the connection to the Google Calendar API.
+
+1. **OAuth 2.0 Authentication**: On the first run, it guides the user through an authentication process to grant the application read-only access to their calendar.
+2. **Token Storage**: The obtained credentials are securely stored in a `token.json` file for subsequent sessions.
+3. **Event Fetching**: The `get_events_for_week` function retrieves all events for the displayed week.
+
+### Secure Credential Storage
+
+In `settings_manager.py`, the `keyring` library is used to never expose credentials in the code or in text files.
+
+---
+
+## Installation and Startup
+
+1. Make sure you have Python 3 installed.
+2. It is advisable to create a virtual environment: `python -m venv venv` and activate it.
+3. Install the dependencies: `pip install -r requirements.txt`.
+4. Start the application from the project root folder: `python main.py`.
+
+### Create the Executable
+
+To create a standalone `.exe` file, run the build script from the root folder:
 
 ```bash
 python scripts/build.py
 ```
 
-L'applicazione compilata si troverà in `dist/CalendarLogger`.
+The compiled application will be in `dist/CalendarLogger`.
 
 ---
 
-## Configurazione Iniziale
+## Initial Configuration
 
-Per far funzionare l'integrazione con Zoho, segui questi passi:
+To make the integrations work, follow these steps:
 
-1. **Ottieni le credenziali da Zoho**: Vai sulla console API di Zoho (`https://api-console.zoho.eu/`) e crea un nuovo client di tipo **Self-Client**. Questo ti fornirà un `Client ID`, un `Client Secret` e un `Refresh Token`.
-2. **Avvia l'app** e clicca sul pulsante **"Impostazioni"**.
-3. **Inserisci le credenziali** ottenute al punto 1 nei rispettivi campi.
-4. Nel campo **"Dominio API"**, inserisci l'URL base corretto per il tuo account Zoho (es. `https://projects.zoho.eu`).
-5. Configura gli orari del calendario come preferisci.
-6. Clicca su **"Salva Impostazioni"**.
-
-Da questo momento, l'applicazione è pronta per comunicare con le API di Zoho.
+1. **Get Zoho credentials**: Go to the Zoho API console (`https://api-console.zoho.eu/`) and create a new **Self-Client** type client. This will provide you with a `Client ID`, a `Client Secret`, and a `Refresh Token`.
+2. **Get Google Calendar credentials**:
+    * Go to the [Google Cloud Console](https://console.cloud.google.com/).
+    * Create a new project.
+    * Enable the "Google Calendar API".
+    * Create credentials for a "Desktop app" OAuth client.
+    * Download the `credentials.json` file and place it in the `calendar_logger` folder.
+3. **Start the app** and click the **"Settings"** button.
+4. **Enter the credentials** obtained in the respective fields.
+5. Click **"Save Settings"**.
 
 ---
 
-## Possibili Miglioramenti Futuri
+## Automated Build and Release
 
-- **UI per Errori**: Mostrare i messaggi di errore (es. credenziali mancanti, fallimento API) in finestre di dialogo invece che sulla console.
-- **Datepicker Widget**: Sostituire l'inserimento manuale delle date con un widget a calendario per migliorare l'usabilità.
-- **Data di Log Dinamica**: In `zoho_api.py`, la data inviata a Zoho è statica. Renderla dinamica, usando ad esempio la data di fine dell'evento.
-- **Fetch di Progetti/Task**: Invece di inserire manualmente ID di progetti e task, implementare chiamate API che recuperano la lista dei progetti e task esistenti e li mostrano in un menu a tendina.
-- **Drag and Drop**: Implementare lo spostamento e il ridimensionamento degli eventi con il mouse.
-- **Refactoring**: Se la classe `App` in `app.py` dovesse crescere ulteriormente, si potrebbe considerare di estrarre le varie finestre di dialogo in classi separate.
+This project uses **GitHub Actions** to automate the creation of executables for Windows, macOS, and Linux. The workflow, defined in `.github/workflows/release.yml`, is triggered every time a new tag (e.g., `v1.0.1`) is pushed to the repository.
+
+The workflow automatically builds the executables and attaches them as assets to a new GitHub Release.
+
+---
+
+## Possible Future Improvements
+
+* **UI for Errors**: Show error messages in dialog windows instead of on the console.
+* **Datepicker Widget**: Replace manual date entry with a calendar widget to improve usability.
+* **Fetch of Projects/Tasks**: Instead of manually entering project and task IDs, implement API calls that retrieve the list of existing projects and tasks and show them in a dropdown menu.
+* **Drag and Drop**: Implement moving and resizing events with the mouse.
