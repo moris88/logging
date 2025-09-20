@@ -157,7 +157,6 @@ class App(ctk.CTk):
         min_menu.pack(side="left")
         summary_frame = ctk.CTkFrame(frame, fg_color="transparent")
         summary_frame.pack(fill='x', expand=True, padx=10, pady=5)
-        ctk.CTkLabel(summary_frame, text="Scelta:", width=60).pack(side="left")
         summary_label = ctk.CTkEntry(summary_frame, textvariable=summary_var,
                                      state="readonly", fg_color="transparent", border_width=0)
         summary_label.pack(side="left", fill="x", expand=True)
@@ -239,8 +238,7 @@ class App(ctk.CTk):
                 continue
             if start_dt.weekday() > 4:
                 continue
-            row = (start_dt.hour - self.calendar_start_hour) * \
-                2 + (1 if start_dt.minute >= 30 else 0)
+            row = (start_dt.hour - self.calendar_start_hour) * 2 + (1 if start_dt.minute >= 30 else 0)
             col = start_dt.weekday()
             duration_minutes = (end_dt - start_dt).total_seconds() / 60
             num_slots = max(1, math.ceil(duration_minutes / 30))
@@ -307,7 +305,6 @@ class App(ctk.CTk):
         if creds.get("portal_id"):
             portal_id_entry.insert(0, creds["portal_id"])
 
-        # Email field
         ctk.CTkLabel(dialog, text="Email Utente:").grid(
             row=6, column=0, padx=10, pady=5, sticky="w")
         email_entry = ctk.CTkEntry(dialog, width=300)
@@ -374,53 +371,36 @@ class App(ctk.CTk):
                 "Errore Validazione", "Portal ID e Email sono necessari per la validazione.")
             return
 
-        # Preferiamo usare validate_user_email se esiste, altrimenti fallback a get_user_by_email
-        if hasattr(zoho_api, "validate_user_email"):
-            is_valid, message = zoho_api.validate_user_email(portal_id, email)
-            if is_valid:
-                messagebox.showinfo("Validazione Utente", message)
-            else:
-                messagebox.showerror("Validazione Utente", message)
-            return
-
         user, message = zoho_api.get_user_by_email(portal_id, email)
         if user:
             messagebox.showinfo("Validazione Utente",
                                 f"Utente trovato: {user.get('name')}")
         else:
-            messagebox.showerror("Errore Validazione", message)
+            messagebox.showerror("Validazione Utente", message)
 
     def execute_zoho_log(self, log_dialog, event_dialog, event, portal_id, project_id, task_id, notes, bill_status):
-        # Recupera owner tramite email impostata in configurazione
         creds = settings_manager.get_credentials()
         email = creds.get("email")
-
-        owner_zpuid = None
-        if email:
-            try:
-                user, err = zoho_api.get_user_by_email(portal_id, email)
-                if user:
-                    owner_zpuid = user.get("id")
-                else:
-                    # Se c'è un errore, mostriamolo ma proviamo comunque a procedere (a seconda delle API Zoho potrebbe essere richiesto owner)
-                    print("Avviso: impossibile recuperare owner dall'email:", err)
-            except Exception as e:
-                print("Errore recupero user by email:", e)
+        
+        user, error = zoho_api.get_user_by_email(portal_id, email)
+        if error:
+            messagebox.showerror("Errore Utente", f"Impossibile recuperare l'utente: {error}")
+            return
+        
+        owner_zpuid = user.get('id')
 
         start_dt = datetime.strptime(event['start_time'], '%Y-%m-%d %H:%M')
         end_dt = datetime.strptime(event['end_time'], '%Y-%m-%d %H:%M')
-        duration_hours = (end_dt - start_dt).total_seconds() / 3600
+        
         log_date = start_dt.strftime("%Y-%m-%d")
         start_time = start_dt.strftime("%H:%M")
         end_time = end_dt.strftime("%H:%M")
 
-        # Chiamata per loggare il tempo
-        # Preferiamo la funzione log_time_to_zoho dal modulo zoho_api
         response = zoho_api.log_time_to_zoho(
             portal_id=portal_id,
             project_id=project_id,
             task_id=task_id,
-            event_name=event.get('name'),
+            event_name=event['name'],
             notes=notes,
             log_date=log_date,
             start_time=start_time,
@@ -429,14 +409,13 @@ class App(ctk.CTk):
             owner_zpuid=owner_zpuid
         )
 
-        if response.get("success"):
+        if response["success"]:
             self.db.set_event_logged(event['id'])
             log_dialog.destroy()
             event_dialog.destroy()
             self.refresh_events()
         else:
-            messagebox.showerror("Errore Log Zoho", response.get(
-                'message', 'Errore sconosciuto'))
+            messagebox.showerror("Errore Log Zoho", response['message'])
 
     def open_add_event_window(self):
         dialog = ctk.CTkToplevel(self)
@@ -520,18 +499,41 @@ class App(ctk.CTk):
             dialog, "Fine", end_dt, form_state)
         event_end_dt = datetime.strptime(event['end_time'], '%Y-%m-%d %H:%M')
         is_past = event_end_dt < datetime.now()
+        
         button_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         button_frame.pack(fill='x', expand=True, padx=10, pady=10)
         button_frame.grid_columnconfigure((0, 1), weight=1)
+
+        def delete_action_with_confirmation():
+            if is_logged:
+                confirmed = messagebox.askyesno(
+                    "Conferma Cancellazione",
+                    "Questo evento è già stato loggato su Zoho.\n\n"
+                    "Cancellandolo qui, verrà rimosso solo dal calendario locale. "
+                    "Dovrai rimuovere manualmente il log da Zoho Projects.\n\n"
+                    "Procedere con la cancellazione locale?",
+                    icon=messagebox.WARNING
+                )
+                if confirmed:
+                    self.delete_event_action(dialog, event['id'])
+            else:
+                self.delete_event_action(dialog, event['id'])
+
+        delete_button = ctk.CTkButton(
+            button_frame, 
+            text="Elimina", 
+            fg_color="transparent", 
+            border_width=2, 
+            text_color=("gray10", "#DCE4EE"), 
+            command=delete_action_with_confirmation
+        )
+        delete_button.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+
         if is_logged:
             logged_label = ctk.CTkLabel(
                 dialog, text="Questo evento è stato loggato e non può essere modificato.", text_color="#c9514a")
             logged_label.pack(pady=20)
         else:
-            delete_button = ctk.CTkButton(button_frame, text="Elimina", fg_color="transparent", border_width=2, text_color=(
-                "gray10", "#DCE4EE"), command=lambda: self.delete_event_action(dialog, event['id']))
-            delete_button.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-
             def update_action():
                 start_time_str = f"{start_date_var.get()} {start_hour_var.get()}:{start_min_var.get()}"
                 end_time_str = f"{end_date_var.get()} {end_hour_var.get()}:{end_min_var.get()}"
