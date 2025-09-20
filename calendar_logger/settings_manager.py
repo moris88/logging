@@ -2,12 +2,14 @@ import keyring
 
 SERVICE_NAME = "GeminiZohoCalendarApp"
 
-def save_credentials(client_id, client_secret, refresh_token, api_domain):
+def save_credentials(client_id, client_secret, refresh_token, api_domain, portal_id, email):
     """Saves Zoho credentials securely in the system's keyring."""
     keyring.set_password(SERVICE_NAME, "client_id", client_id)
     keyring.set_password(SERVICE_NAME, "client_secret", client_secret)
     keyring.set_password(SERVICE_NAME, "refresh_token", refresh_token)
     keyring.set_password(SERVICE_NAME, "api_domain", api_domain)
+    keyring.set_password(SERVICE_NAME, "portal_id", portal_id)
+    keyring.set_password(SERVICE_NAME, "email", email)
     print("Credenziali salvate con successo.")
 
 def get_credentials():
@@ -17,6 +19,8 @@ def get_credentials():
         "client_secret": keyring.get_password(SERVICE_NAME, "client_secret"),
         "refresh_token": keyring.get_password(SERVICE_NAME, "refresh_token"),
         "api_domain": keyring.get_password(SERVICE_NAME, "api_domain"),
+        "portal_id": keyring.get_password(SERVICE_NAME, "portal_id"),
+        "email": keyring.get_password(SERVICE_NAME, "email"),
     }
 
 def save_access_token(access_token):
