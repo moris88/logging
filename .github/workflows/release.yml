@@ -31,7 +31,7 @@ jobs:
         run: |
           if (-Not (Test-Path dist)) { Write-Error "dist folder does not exist!"; exit 1 }
           New-Item -ItemType Directory -Force dist_zip
-          Compress-Archive -Path .\dist\* -DestinationPath .\dist_zip\myapp-windows.zip
+          Compress-Archive -Path .\dist\CalendarLogger\* -DestinationPath .\dist_zip\logger-windows.zip
         shell: powershell
 
       - name: Check zip files
@@ -75,7 +75,7 @@ jobs:
       - name: Zip executable
         run: |
           mkdir -p dist_zip
-          zip -r dist_zip/myapp-linux.zip dist/*
+          zip -r dist_zip/logger-linux.zip dist/CalendarLogger/*
         shell: bash
 
       - name: Check zip files
@@ -122,7 +122,7 @@ jobs:
       - name: Zip executable
         run: |
           mkdir -p dist_zip
-          zip -r dist_zip/myapp-macos.zip dist/*
+          zip -r dist_zip/logger-macos.zip dist/CalendarLogger/*
         shell: bash
 
       - name: Check zip files
