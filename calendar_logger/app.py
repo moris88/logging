@@ -238,7 +238,6 @@ class App(ctk.CTk):
         # Conversione eventi Google al formato interno
         google_events = []
         for e in google_events_list:
-            print(f"Google Event: {e.get('description', '')}")  # Debug log
             start = e['start'].get('dateTime', e['start'].get('date'))
             end = e['end'].get('dateTime', e['end'].get('date'))
             google_events.append({
