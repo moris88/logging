@@ -29,23 +29,25 @@ jobs:
 
       - name: Run build script on Linux/macOS
         if: runner.os != 'Windows'
-        run: python scripts/build.py
+        run: pyinstaller --noconfirm --onefile scripts/build.py
         shell: bash
 
       - name: Run build script on Windows
         if: runner.os == 'Windows'
-        run: python scripts\build.py
+        run: pyinstaller --noconfirm --onefile scripts/build.py
         shell: powershell
 
       - name: Zip executables
         run: |
           mkdir -p dist_zip
           if [ "$RUNNER_OS" != "Windows" ]; then
-            zip -r dist_zip/myapp-linux.zip dist/*
+            zip -r dist_zip/myapp-${{ matrix.os }}.zip dist/*
           else
-            powershell Compress-Archive -Path dist\* -DestinationPath dist_zip\myapp-windows.zip
+            powershell Compress-Archive -Path dist\* -DestinationPath dist_zip\myapp-${{ matrix.os }}.zip
           fi
 
+      - name: Check zip files
+        run: ls -l dist_zip/   
       - name: Upload executables to release
         uses: actions/upload-release-asset@v1
         with:
@@ -55,3 +57,4 @@ jobs:
           asset_content_type: application/zip
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+
