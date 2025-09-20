@@ -9,7 +9,7 @@ class Database:
         """Creates the events table if it doesn't exist."""
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT,
                 start_time TEXT NOT NULL,

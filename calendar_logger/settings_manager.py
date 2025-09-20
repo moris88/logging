@@ -44,3 +44,9 @@ def get_calendar_hours():
         "start_hour": start if start else "8",
         "end_hour": end if end else "19",
     }
+    
+def clear_credentials():
+    """Clears all stored credentials and tokens."""
+    for key in ["client_id", "client_secret", "refresh_token", "api_domain", "portal_id", "email", "access_token", "calendar_start_hour", "calendar_end_hour"]:
+        keyring.delete_password(SERVICE_NAME, key)
+    print("Credenziali cancellate con successo.")

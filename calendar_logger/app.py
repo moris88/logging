@@ -1,12 +1,13 @@
 import customtkinter as ctk
 import locale
 import math
+import threading
 from datetime import datetime, timedelta
-from tkinter import messagebox
+from tkinter import messagebox, Toplevel, ttk
 from tkcalendar import Calendar
 from calendar_logger import zoho_api
 from calendar_logger import settings_manager
-from calendar_logger import google_calendar
+
 
 class App(ctk.CTk):
     def __init__(self, db):
@@ -17,7 +18,6 @@ class App(ctk.CTk):
         self.calendar_start_hour = 8
         today = datetime.now()
         self.current_week_start = today - timedelta(days=today.weekday())
-
         try:
             locale.setlocale(locale.LC_TIME, 'it_IT.UTF-8')
         except locale.Error:
@@ -63,15 +63,9 @@ class App(ctk.CTk):
             self.action_frame, text="Aggiungi Evento", command=self.open_add_event_window)
         self.add_event_button.grid(
             row=0, column=0, padx=5, pady=5, sticky="ew")
-        self.refresh_button = ctk.CTkButton(
-            self.action_frame,
-            text="Aggiorna Eventi",
-            command=self.refresh_events  # chiama il metodo refresh_events
-        )
-        self.refresh_button.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
         self.settings_button = ctk.CTkButton(
             self.action_frame, text="Impostazioni", command=self.open_settings_window)
-        self.settings_button.grid(row=0, column=2, padx=5, pady=5, sticky="ew")
+        self.settings_button.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
         self.rebuild_calendar()
 
     def change_week(self, weeks_delta):
@@ -94,11 +88,12 @@ class App(ctk.CTk):
         except ValueError:
             current_date = datetime.now()
         cal = Calendar(top, selectmode='day', year=current_date.year,
-                       month=current_date.month, day=current_date.day, locale='it_IT')
+                       month=current_date.month, day=current_date.day, locale='it_IT', date_pattern='yyyy-mm-dd')
         cal.pack(pady=20)
 
         def set_date_and_close():
-            date_var.set(cal.strftime("%Y-%m-%d"))
+            selected_date = cal.get_date()
+            date_var.set(selected_date)
             top.destroy()
             if on_close_callback:
                 on_close_callback()
@@ -112,6 +107,7 @@ class App(ctk.CTk):
             widget.destroy()
         self.create_calendar_grid()
         self.refresh_events()
+        self.draw_current_time_line()
 
     def _create_datetime_picker(self, parent, frame_title, initial_datetime, form_state):
         frame = ctk.CTkFrame(parent)
@@ -217,44 +213,16 @@ class App(ctk.CTk):
         # Intervallo settimana corrente
         start_str = self.current_week_start.strftime("%Y-%m-%d 00:00:00")
         end_str = (self.current_week_start + timedelta(days=5)
-                ).strftime("%Y-%m-%d 23:59:59")
+                   ).strftime("%Y-%m-%d 23:59:59")
 
-        # Eventi dal DB locale
-        local_events = self.db.get_events_for_week(start_str, end_str)
-
-        # Intervallo settimana corrente come datetime
-        week_start_dt = self.current_week_start
-        week_end_dt = self.current_week_start + \
-            timedelta(days=4, hours=23, minutes=59, seconds=59)
-
-        # Eventi da Google Calendar per la settimana corrente
-        try:
-            google_events_list = google_calendar.get_events_for_week(
-                week_start_dt, week_end_dt, max_results=100)
-        except Exception as e:
-            print(f"Errore recupero eventi Google: {e}")
-            google_events_list = []
-
-        # Conversione eventi Google al formato interno
-        google_events = []
-        for e in google_events_list:
-            start = e['start'].get('dateTime', e['start'].get('date'))
-            end = e['end'].get('dateTime', e['end'].get('date'))
-            google_events.append({
-                'name': e.get('summary', 'Evento Google'),
-                'description': e.get('description', ''),
-                'start_time': start[:16].replace('T', ' '),  # YYYY-MM-DD HH:MM
-                'end_time': end[:16].replace('T', ' '),
-                'is_logged': 0  # non loggato su Zoho
-            })
-
-        # Unione eventi
-        events = local_events + google_events
+        # Recupera tutti gli eventi (locali)
+        events = self.db.get_events_for_week(start_str, end_str)
 
         # Creazione bottoni nella griglia
         for event in events:
             try:
-                start_dt = datetime.strptime(event['start_time'], '%Y-%m-%d %H:%M')
+                start_dt = datetime.strptime(
+                    event['start_time'], '%Y-%m-%d %H:%M')
                 end_dt = datetime.strptime(event['end_time'], '%Y-%m-%d %H:%M')
             except ValueError:
                 continue
@@ -269,19 +237,30 @@ class App(ctk.CTk):
             if not (0 <= row < len(self.calendar_cells)):
                 continue
 
+            is_logged = event.get('is_logged') == 1
+            now = datetime.now()
+
+            if is_logged:
+                fg_color = "#c9514a"
+            elif now > end_dt + timedelta(minutes=30):
+                fg_color = "#22b845"
+            else:
+                fg_color = "#3b8ed0"
+
             event_text = f"{event['name']}"
             event_button = DraggableEventButton(
                 self.scrollable_frame,
                 event=event,
                 app_controller=self,
                 text=event_text,
-                fg_color="#c9514a" if event.get('is_logged') else "#3b8ed0",
-                font=ctk.CTkFont(size=10)
+                fg_color=fg_color,
+                text_color="black",
+                font=ctk.CTkFont(size=10),
+                cursor="hand2"  # 👈 fa comparire la manina
             )
             event_button.grid(row=row, column=col+1,
-                            rowspan=num_slots, padx=1, pady=1, sticky="nsew")
+                              rowspan=num_slots, padx=1, pady=1, sticky="nsew")
             self.event_widgets.append(event_button)
-
 
     def open_settings_window(self):
         dialog = ctk.CTkToplevel(self)
@@ -394,30 +373,50 @@ class App(ctk.CTk):
         email = creds.get("email")
         if not portal_id or not email:
             messagebox.showerror(
-                "Errore Validazione", "Portal ID e Email sono necessari per la validazione.")
+                "Errore Validazione", "Portal ID e Email sono necessari per la validazione."
+            )
             return
 
-        user, message = zoho_api.get_user_by_email(portal_id, email)
-        if user:
-            messagebox.showinfo("Validazione Utente",
-                                f"Utente trovato: {user.get('name')}")
-        else:
-            messagebox.showerror("Validazione Utente", message)
+        # Creiamo un popup spinner
+        spinner_window = Toplevel()
+        spinner_window.title("Validazione in corso...")
+        spinner_window.geometry("250x80")
+        spinner_window.resizable(False, False)
+        ttk.Label(spinner_window,
+                  text="Verifica utente, attendere...").pack(pady=10)
+        progress = ttk.Progressbar(spinner_window, mode="indeterminate")
+        progress.pack(pady=10, fill="x", padx=20)
+        progress.start(10)  # velocità spinner
+
+        # Esegui la chiamata in background per non bloccare l'interfaccia
+        def run_validation():
+            user, message = zoho_api.get_user_by_email(portal_id, email)
+            spinner_window.destroy()  # chiudiamo lo spinner quando finisce
+            if user:
+                messagebox.showinfo("Validazione Utente",
+                                    f"Utente trovato: {user.get('full_name')} (ID: {user.get('id')})")
+            else:
+                messagebox.showerror("Validazione Utente", message)
+
+        # Importante: usare thread per non bloccare Tkinter
+        import threading
+        threading.Thread(target=run_validation, daemon=True).start()
 
     def execute_zoho_log(self, log_dialog, event_dialog, event, portal_id, project_id, task_id, notes, bill_status):
         creds = settings_manager.get_credentials()
         email = creds.get("email")
-        
+
         user, error = zoho_api.get_user_by_email(portal_id, email)
         if error:
-            messagebox.showerror("Errore Utente", f"Impossibile recuperare l'utente: {error}")
+            messagebox.showerror(
+                "Errore Utente", f"Impossibile recuperare l'utente: {error}")
             return
-        
+
         owner_zpuid = user.get('id')
 
         start_dt = datetime.strptime(event['start_time'], '%Y-%m-%d %H:%M')
         end_dt = datetime.strptime(event['end_time'], '%Y-%m-%d %H:%M')
-        
+
         log_date = start_dt.strftime("%Y-%m-%d")
         start_time = start_dt.strftime("%H:%M")
         end_time = end_dt.strftime("%H:%M")
@@ -489,47 +488,76 @@ class App(ctk.CTk):
         save_button.pack(fill='x', padx=20, pady=20)
 
     def save_event(self, dialog, name_entry, desc_box, start_time_str, end_time_str):
-        name = name_entry.get()
-        description = desc_box.get("1.0", "end-1c")
-        if not all([name, start_time_str, end_time_str]):
-            print("Errore: Dati evento incompleti.")
+        name = name_entry.get().strip()
+        description = desc_box.get("1.0", "end-1c").strip()
+
+        # Controllo dati obbligatori
+        if not name or not start_time_str or not end_time_str:
+            messagebox.showerror(
+                "Errore", "Compila tutti i campi richiesti per l'evento.")
             return
-        self.db.add_event(name, description, start_time_str, end_time_str)
-        dialog.destroy()
-        self.refresh_events()
+
+        # Verifica formato datetime
+        try:
+            datetime.strptime(start_time_str, "%Y-%m-%d %H:%M")
+            datetime.strptime(end_time_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            messagebox.showerror(
+                "Errore", "Formato data/ora non valido. Usa YYYY-MM-DD HH:MM")
+            return
+
+        try:
+            self.db.add_event(name, description, start_time_str, end_time_str)
+            dialog.destroy()
+            self.refresh_events()
+        except Exception as e:
+            messagebox.showerror(
+                "Errore", f"Impossibile salvare l'evento: {e}")
 
     def open_view_event_window(self, event):
+        self._open_event_form(event)  # apri subito il form
+
+    def _open_event_form(self, event):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Dettagli Evento")
         dialog.geometry("450x600")
         dialog.transient(self)
         dialog.grab_set()
+
         is_logged = event.get('is_logged') == 1
         form_state = "disabled" if is_logged else "normal"
+
+        # Nome evento
         ctk.CTkLabel(dialog, text="Nome:").pack(
             anchor="w", padx=20, pady=(10, 0))
         name_entry = ctk.CTkEntry(dialog, state=form_state)
         name_entry.pack(fill='x', padx=20, pady=5)
         name_entry.insert(0, event.get('name', ''))
+
+        # Descrizione
         ctk.CTkLabel(dialog, text="Descrizione:").pack(
             anchor="w", padx=20, pady=(10, 0))
         desc_box = ctk.CTkTextbox(dialog, height=80)
         desc_box.pack(fill='x', padx=20, pady=5)
         desc_box.insert("1.0", event.get('description', ''))
         desc_box.configure(state=form_state)
+
+        # Datetime picker
         start_dt = datetime.strptime(event['start_time'], '%Y-%m-%d %H:%M')
         end_dt = datetime.strptime(event['end_time'], '%Y-%m-%d %H:%M')
         start_date_var, start_hour_var, start_min_var = self._create_datetime_picker(
             dialog, "Inizio", start_dt, form_state)
         end_date_var, end_hour_var, end_min_var = self._create_datetime_picker(
             dialog, "Fine", end_dt, form_state)
-        event_end_dt = datetime.strptime(event['end_time'], '%Y-%m-%d %H:%M')
-        is_past = event_end_dt < datetime.now()
-        
+
+        is_past = end_dt < datetime.now()
+
+        # Frame pulsanti
         button_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         button_frame.pack(fill='x', expand=True, padx=10, pady=10)
         button_frame.grid_columnconfigure((0, 1), weight=1)
 
+        # Pulsante elimina
         def delete_action_with_confirmation():
             if is_logged:
                 confirmed = messagebox.askyesno(
@@ -546,35 +574,96 @@ class App(ctk.CTk):
                 self.delete_event_action(dialog, event['id'])
 
         delete_button = ctk.CTkButton(
-            button_frame, 
-            text="Elimina", 
-            fg_color="transparent", 
-            border_width=2, 
-            text_color=("gray10", "#DCE4EE"), 
+            button_frame,
+            text="Elimina",
+            fg_color="transparent",
+            border_width=2,
+            text_color=("gray10", "#DCE4EE"),
             command=delete_action_with_confirmation
         )
         delete_button.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
-        if is_logged:
-            logged_label = ctk.CTkLabel(
-                dialog, text="Questo evento è stato loggato e non può essere modificato.", text_color="#c9514a")
-            logged_label.pack(pady=20)
-        else:
+        # Pulsante Salva
+        if not is_logged and not is_past:
             def update_action():
                 start_time_str = f"{start_date_var.get()} {start_hour_var.get()}:{start_min_var.get()}"
                 end_time_str = f"{end_date_var.get()} {end_hour_var.get()}:{end_min_var.get()}"
-                self.update_event_action(dialog, event['id'], name_entry.get(
-                ), desc_box.get("1.0", "end-1c"), start_time_str, end_time_str)
+                self.update_event_action(dialog, event['id'], name_entry.get(),
+                                        desc_box.get("1.0", "end-1c"), start_time_str, end_time_str)
 
             save_button = ctk.CTkButton(
                 button_frame, text="Salva Modifiche", command=update_action)
             save_button.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
 
-            if is_past:
-                save_button.grid_forget()
-                log_button = ctk.CTkButton(button_frame, text="Logga su Zoho", fg_color="#4CAF50",
-                                           hover_color="#388E3C", command=lambda: self.open_zoho_log_window(dialog, event))
-                log_button.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        # Pulsante Logga su Zoho per eventi passati o futuri loggabili
+        if not is_logged:
+            progress_bar = ctk.CTkProgressBar(
+                button_frame, mode="indeterminate")
+            progress_bar.grid(row=1, column=0, columnspan=2,
+                            sticky="ew", padx=10, pady=5)
+            progress_bar.grid_remove()  # Nascondi inizialmente
+
+            def log_on_zoho():
+                # Mostra spinner
+                progress_bar.grid()
+                progress_bar.start()
+                # Disabilita pulsanti
+                for child in button_frame.winfo_children():
+                    if isinstance(child, ctk.CTkButton):
+                        child.configure(state="disabled")
+
+                def thread_log():
+                    try:
+                        creds = settings_manager.get_credentials()
+                        portal_id = creds.get("portal_id")
+
+                        # Scarica progetti e tasks al click del pulsante
+                        projects, err_proj = zoho_api.get_projects(portal_id)
+                        if err_proj:
+                            messagebox.showerror(
+                                "Errore", f"Errore caricamento progetti: {err_proj}")
+                            return
+
+                        tasks_dict = {}
+                        for project in projects:
+                            tasks, err_task = zoho_api.get_tasks(
+                                portal_id, project['id'])
+                            if err_task:
+                                messagebox.showerror(
+                                    "Errore",
+                                    f"Errore caricamento task progetto {project['name']}: {err_task}"
+                                )
+                                return
+                            tasks_dict[project['id']] = tasks
+
+                        # Una volta caricati dati, apri finestra log
+                        self.open_zoho_log_window(
+                            dialog, event, projects, tasks_dict)
+                    finally:
+                        progress_bar.stop()
+                        progress_bar.grid_remove()
+                        for child in button_frame.winfo_children():
+                            if isinstance(child, ctk.CTkButton):
+                                child.configure(state="normal")
+
+                threading.Thread(target=thread_log, daemon=True).start()
+
+            log_button = ctk.CTkButton(
+                button_frame,
+                text="Logga su Zoho",
+                fg_color="#4CAF50",
+                hover_color="#388E3C",
+                command=log_on_zoho
+            )
+            log_button.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+
+        if is_logged:
+            logged_label = ctk.CTkLabel(
+                dialog,
+                text="Questo evento è stato loggato e non può essere modificato.",
+                text_color="#c9514a"
+            )
+            logged_label.pack(pady=20)
 
     def update_event_action(self, dialog, event_id, name, description, start_time, end_time):
         self.db.update_event(event_id, name, description, start_time, end_time)
@@ -586,13 +675,39 @@ class App(ctk.CTk):
         dialog.destroy()
         self.refresh_events()
 
-    def open_zoho_log_window(self, parent_dialog, event):
+    def open_zoho_log_window(self, parent_dialog, event, projects=None, tasks_dict=None):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Log Time su Zoho")
         dialog.geometry("450x520")
         dialog.grid_columnconfigure(1, weight=1)
         dialog.transient(self)
         dialog.grab_set()
+
+        creds = settings_manager.get_credentials()
+        portal_id = creds.get("portal_id")
+        start_dt = datetime.strptime(event['start_time'], '%Y-%m-%d %H:%M')
+        end_dt = datetime.strptime(event['end_time'], '%Y-%m-%d %H:%M')
+        duration_hours = round((end_dt - start_dt).total_seconds() / 3600, 2)
+        log_date = start_dt.strftime("%m-%d-%Y")
+
+        # Se projects e tasks_dict sono forniti, usali direttamente
+        if projects is None or tasks_dict is None:
+            projects, err_proj = zoho_api.get_projects(portal_id)
+            if err_proj:
+                    messagebox.showerror(
+                        "Errore", f"Errore caricamento progetti: {err_proj}")
+                    return
+                
+            tasks_dict = {}
+            for project in projects:
+                tasks, err_task = zoho_api.get_tasks(portal_id, project['id'])
+                if err_task:
+                    messagebox.showerror(
+                        "Errore",
+                        f"Errore caricamento task progetto {project['name']}: {err_task}"
+                    )
+                    return
+                tasks_dict[project['id']] = tasks
 
         creds = settings_manager.get_credentials()
         portal_id = creds.get("portal_id")
@@ -673,8 +788,9 @@ class App(ctk.CTk):
                 t), "_raw": t} for t in tasks]
             task_names = [t['name'] for t in tasks_data]
             task_combo.configure(state="normal", values=task_names if task_names else [
-                                "Nessun task trovato"])
-            task_combo.set(task_names[0] if task_names else "Nessun task trovato")
+                "Nessun task trovato"])
+            task_combo.set(
+                task_names[0] if task_names else "Nessun task trovato")
 
         def load_projects():
             if not portal_id:
@@ -718,7 +834,7 @@ class App(ctk.CTk):
                 return
 
             self.execute_zoho_log(dialog, parent_dialog, event,
-                                portal_id, project_id, task_id, notes, bill_status)
+                                  portal_id, project_id, task_id, notes, bill_status)
 
         log_button = ctk.CTkButton(
             dialog, text="Registra Tempo", command=register_action)
@@ -727,12 +843,40 @@ class App(ctk.CTk):
 
         load_projects()
 
+    def draw_current_time_line(self):
+        now = datetime.now()
+        # Solo se il giorno corrente è compreso nella settimana visualizzata
+        if not (self.current_week_start <= now <= self.current_week_start + timedelta(days=4)):
+            return
+
+        # Calcolo offset in minuti dall'inizio del calendario
+        total_minutes = (now.hour - self.calendar_start_hour) * 60 + now.minute
+        if total_minutes < 0:
+            return
+
+        # Ogni riga = 30 minuti
+        row_index = int(total_minutes // 30)
+        minutes_in_slot = total_minutes % 30
+
+        # Calcoliamo la posizione verticale relativa dentro alla riga
+        offset_ratio = minutes_in_slot / 30
+
+        # Creiamo una riga nera che copre tutte le 5 colonne dei giorni
+        line = ctk.CTkFrame(self.scrollable_frame, fg_color="black", height=2)
+        line.grid(row=row_index, column=1, columnspan=5,
+                  sticky="ew", pady=(int(offset_ratio*30), 0))
+
+        # Manteniamo riferimento per poterla ridisegnare al refresh
+        self.current_time_line = line
+
+
 class DraggableEventButton(ctk.CTkButton):
     def __init__(self, master, event, app_controller, **kwargs):
         super().__init__(master, **kwargs)
         self.event_data = event
         self.app = app_controller
         self.bind("<ButtonPress-1>", self.on_click)
+        self.configure(anchor="n")
 
     def on_click(self, event):
         self.app.open_view_event_window(self.event_data)

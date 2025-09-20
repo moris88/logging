@@ -50,8 +50,6 @@ htmlcov/
 venv/
 ENV/
 env/
-calendar_logger/credentials.json
-calendar_logger/token.json
 
 # IDEs and editors
 .idea/
